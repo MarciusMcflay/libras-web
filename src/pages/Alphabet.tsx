@@ -3,11 +3,12 @@ import { useNavigate } from "react-router-dom";
 import { useCamera } from "../context/CameraContext";
 import { useHandLandmarker } from "../hooks/useHandLandmarker";
 import { classifyLibrasSign, HandDetectionResult } from "../utils/librasClassifier";
-import { ArrowLeft, CheckCircle2, ArrowUp, ArrowDown } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ArrowUp, ArrowDown, Sparkles, ArrowRight, Trophy } from "lucide-react";
 import alfabetoImage from "../assets/alfabeto_libra-pt-Br.jpg";
 
 type AlphabetState = {
   currentDetection: HandDetectionResult;
+  completedLetters: string[];
 };
 
 const initialAlphabetState: AlphabetState = {
@@ -19,6 +20,7 @@ const initialAlphabetState: AlphabetState = {
     landmarksCount: 0,
     orientation: "UP",
   },
+  completedLetters: [],
 };
 
 type AlphabetGuideItem = {
@@ -67,8 +69,6 @@ type PlacedLetterCell = {
 };
 
 // Algoritmo Matemático de Perímetro 2D: C + R = 15
-// Landscape (9 colunas x 6 linhas): Perímetro = 2*9 + 2*(6-2) = 18 + 8 = 26 células!
-// Portrait (6 colunas x 9 linhas): Perímetro = 2*6 + 2*(9-2) = 12 + 14 = 26 células!
 function calculatePerimeterGrid(isLandscape: boolean): {
   cols: number;
   rows: number;
@@ -134,7 +134,7 @@ function calculatePerimeterGrid(isLandscape: boolean): {
 export const Alphabet: React.FC = () => {
   const navigate = useNavigate();
   const { cameraState } = useCamera();
-  const { landmarkerState, startDetection, stopDetection } = useHandLandmarker();
+  const { landmarkerState, startDetection, stopDetection } = useHandLandmarker({ numHands: 1 });
 
   const [alphabetState, setAlphabetState] = useState<AlphabetState>(initialAlphabetState);
   const [isLandscape, setIsLandscape] = useState<boolean>(window.innerWidth >= window.innerHeight);
@@ -177,10 +177,11 @@ export const Alphabet: React.FC = () => {
     };
   }, [landmarkerState.isInitialized, startDetection, stopDetection]);
 
-  // Executa o classificador de sinais a cada alteração nos landmarks
+  // Executa o classificador de sinais a cada alteração nos landmarks e contabiliza letras concluídas
   useEffect(() => {
     if (!landmarkerState.landmarks || landmarkerState.landmarks.length < 21) {
-      setAlphabetState({
+      setAlphabetState((prev) => ({
+        ...prev,
         currentDetection: {
           letter: "-",
           confidence: 0,
@@ -189,18 +190,32 @@ export const Alphabet: React.FC = () => {
           landmarksCount: 0,
           orientation: "UP",
         },
-      });
+      }));
       return;
     }
 
     const detection = classifyLibrasSign(landmarkerState.landmarks);
-    setAlphabetState({
-      currentDetection: detection,
+
+    setAlphabetState((prev) => {
+      const isKnownChar = ALPHABET_ITEMS.some((item) => item.char === detection.letter);
+      const isNewLetter =
+        isKnownChar &&
+        detection.confidence >= 0.70 &&
+        !prev.completedLetters.includes(detection.letter);
+
+      return {
+        currentDetection: detection,
+        completedLetters: isNewLetter
+          ? [...prev.completedLetters, detection.letter]
+          : prev.completedLetters,
+      };
     });
   }, [landmarkerState.landmarks]);
 
   // Calcula a grade matemática dinâmica de 26 células no anel externo
   const { cols, rows, placedCells } = calculatePerimeterGrid(isLandscape);
+
+  const isPhase4Unlocked = alphabetState.completedLetters.length >= 4;
 
   return (
     <div className="h-screen w-screen bg-[#090d16] text-white overflow-hidden select-none relative p-1">
@@ -225,8 +240,8 @@ export const Alphabet: React.FC = () => {
             gridRowEnd: rows,
           }}
         >
-          {/* Header Central: Voltar + Passo 3 de 3 */}
-          <div className="flex items-center justify-between pb-1.5 border-b border-slate-800/80 z-10 flex-shrink-0">
+          {/* Header Central: Voltar + Progresso + Botão Desbloqueio Fase 4 */}
+          <div className="flex items-center justify-between pb-1.5 border-b border-slate-800/80 z-10 flex-shrink-0 gap-2">
             <button
               onClick={() => navigate("/enquadramento")}
               className="flex items-center gap-1.5 text-xs font-semibold text-slate-300 hover:text-white px-3 py-1 rounded-xl bg-slate-900 border border-slate-800 transition-colors shadow-md"
@@ -235,10 +250,30 @@ export const Alphabet: React.FC = () => {
               <span>Voltar ao Enquadramento</span>
             </button>
 
-            <span className="text-xs px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold flex items-center gap-1.5 shadow-md">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-              Passo 3 de 3: Detecção em Tempo Real
-            </span>
+            <div className="flex items-center gap-2">
+              {/* Contador de Letras Feitas */}
+              <span className="text-xs px-2.5 py-1 rounded-full bg-slate-900 border border-indigo-500/30 text-indigo-300 font-medium flex items-center gap-1.5 shadow-md">
+                <Trophy className="w-3.5 h-3.5 text-amber-400" />
+                <span>Letras Feitas: {alphabetState.completedLetters.length}/4</span>
+              </span>
+
+              {/* Botão de Avançar para Fase 4 quando desbloqueado (>= 4 letras) */}
+              {isPhase4Unlocked ? (
+                <button
+                  onClick={() => navigate("/enquadramento-duas-maos")}
+                  className="flex items-center gap-1.5 text-xs font-bold text-white px-3.5 py-1 rounded-full bg-gradient-to-r from-emerald-500 to-indigo-600 hover:from-emerald-400 hover:to-indigo-500 shadow-lg shadow-emerald-500/20 border border-emerald-400/50 transition-transform active:scale-95 animate-pulse"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Ir para Fase 4 (2 Mãos)</span>
+                  <ArrowRight className="w-3.5 h-3.5 text-white" />
+                </button>
+              ) : (
+                <span className="text-xs px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold flex items-center gap-1.5 shadow-md">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  Fase 3: Detecção de Letras
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Câmera Feed Adaptativa no Centro */}
@@ -299,6 +334,14 @@ export const Alphabet: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {/* BANNER FLUTUANTE SE FASE 4 ESTIVER DESBLOQUEADA */}
+            {isPhase4Unlocked && (
+              <div className="absolute bottom-2.5 right-2.5 z-30 bg-emerald-950/90 backdrop-blur-md border border-emerald-500/50 px-3 py-1.5 rounded-xl shadow-2xl flex items-center gap-2 text-xs font-semibold text-emerald-200">
+                <Trophy className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>Fase 4 Desbloqueada! Clique no botão no topo para avançar.</span>
+              </div>
+            )}
           </div>
 
           {/* Rodapé Central com a Descrição Anatômica Atual */}
@@ -312,6 +355,7 @@ export const Alphabet: React.FC = () => {
         {/* AS 26 CÉLULAS DA MOLDURA PERIMETRAL ALOCADAS NA GRADE 2D UNIFICADA */}
         {placedCells.map(({ item, gridCol, gridRow, position }) => {
           const isActive = alphabetState.currentDetection.letter === item.char;
+          const isCompleted = alphabetState.completedLetters.includes(item.char);
 
           const imageStyle: React.CSSProperties =
             item.char === "U"
@@ -357,6 +401,8 @@ export const Alphabet: React.FC = () => {
               className={`relative flex flex-col items-center justify-between p-1 transition-all duration-300 border border-slate-800/80 group w-full h-full min-h-[50px] overflow-visible ${
                 isActive
                   ? "bg-gradient-to-b from-indigo-900/95 to-purple-950/95 border-indigo-400 shadow-[0_0_20px_rgba(99,102,241,0.7)] scale-105 z-40 ring-2 ring-indigo-400 rounded-xl"
+                  : isCompleted
+                  ? "bg-emerald-950/40 border-emerald-500/40"
                   : "bg-slate-950/90 hover:bg-slate-900"
               }`}
             >
@@ -364,14 +410,20 @@ export const Alphabet: React.FC = () => {
               <div className="w-full flex items-center justify-between px-1 mb-0.5">
                 <span
                   className={`text-[11px] font-black tracking-wider ${
-                    isActive ? "text-emerald-300 animate-bounce" : "text-slate-200"
+                    isActive
+                      ? "text-emerald-300 animate-bounce"
+                      : isCompleted
+                      ? "text-emerald-400"
+                      : "text-slate-200"
                   }`}
                 >
                   {item.char}
                 </span>
-                {isActive && (
+                {isActive ? (
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                )}
+                ) : isCompleted ? (
+                  <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                ) : null}
               </div>
 
               {/* Thumbnail 1:1 em Fundo Branco */}
@@ -400,3 +452,4 @@ export const Alphabet: React.FC = () => {
     </div>
   );
 };
+

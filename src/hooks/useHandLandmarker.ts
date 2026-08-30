@@ -8,6 +8,7 @@ export type LandmarkerState = {
   isDetecting: boolean;
   error: string | null;
   landmarks: Landmark[] | null;
+  landmarksList: Landmark[][] | null;
 };
 
 const initialLandmarkerState: LandmarkerState = {
@@ -16,6 +17,7 @@ const initialLandmarkerState: LandmarkerState = {
   isDetecting: false,
   error: null,
   landmarks: null,
+  landmarksList: null,
 };
 
 // Mapeamento de cores e nomes para os 21 pontos dos dedos (do centro/base para a ponta)
@@ -54,7 +56,13 @@ const LANDMARK_STYLE_MAP: Record<number, { color: string; textColor: string }> =
   20: { color: "#6b21a8", textColor: "#ffffff" }, // Ponta do mínimo
 };
 
-export function useHandLandmarker() {
+type UseHandLandmarkerOptions = {
+  numHands?: number;
+};
+
+export function useHandLandmarker(options?: UseHandLandmarkerOptions) {
+  const numHands = options?.numHands ?? 1;
+
   const [landmarkerState, setLandmarkerState] = useState<LandmarkerState>(initialLandmarkerState);
   const handLandmarkerRef = useRef<HandLandmarker | null>(null);
   const animFrameIdRef = useRef<number | null>(null);
@@ -72,7 +80,7 @@ export function useHandLandmarker() {
       }));
 
       try {
-        console.log("[MediaPipe] Carregando arquivos WASM do CDN...");
+        console.log(`[MediaPipe] Carregando arquivos WASM do CDN (numHands: ${numHands})...`);
         const vision = await FilesetResolver.forVisionTasks(
           "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
         );
@@ -87,7 +95,7 @@ export function useHandLandmarker() {
             delegate: "GPU",
           },
           runningMode: "VIDEO",
-          numHands: 1,
+          numHands: numHands,
         });
 
         if (!isMounted) return;
@@ -100,6 +108,7 @@ export function useHandLandmarker() {
           isDetecting: false,
           error: null,
           landmarks: null,
+          landmarksList: null,
         });
 
         console.log("[MediaPipe] Modelo HandLandmarker carregado com sucesso!");
@@ -128,11 +137,11 @@ export function useHandLandmarker() {
         handLandmarkerRef.current = null;
       }
     };
-  }, []);
+  }, [numHands]);
 
-  // Desenha os 21 pontos numerados e coloridos no Canvas
+  // Desenha os 21 pontos numerados e coloridos no Canvas para todas as mãos detectadas
   const drawLandmarks = useCallback(
-    (landmarks: Landmark[], canvas: HTMLCanvasElement, video: HTMLVideoElement) => {
+    (allHands: Landmark[][], canvas: HTMLCanvasElement, video: HTMLVideoElement) => {
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
@@ -151,46 +160,50 @@ export function useHandLandmarker() {
         [0, 17] // Palma
       ];
 
-      // Desenhar linhas conectoras suaves
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
-      ctx.lineWidth = 2.5;
-      for (const [start, end] of CONNECTIONS) {
-        const p1 = landmarks[start];
-        const p2 = landmarks[end];
-        if (p1 && p2) {
-          ctx.beginPath();
-          ctx.moveTo(p1.x * canvas.width, p1.y * canvas.height);
-          ctx.lineTo(p2.x * canvas.width, p2.y * canvas.height);
-          ctx.stroke();
+      for (const landmarks of allHands) {
+        if (!landmarks || landmarks.length < 21) continue;
+
+        // Desenhar linhas conectoras suaves
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
+        ctx.lineWidth = 2.5;
+        for (const [start, end] of CONNECTIONS) {
+          const p1 = landmarks[start];
+          const p2 = landmarks[end];
+          if (p1 && p2) {
+            ctx.beginPath();
+            ctx.moveTo(p1.x * canvas.width, p1.y * canvas.height);
+            ctx.lineTo(p2.x * canvas.width, p2.y * canvas.height);
+            ctx.stroke();
+          }
         }
-      }
 
-      // Desenhar os 21 pontos (landmarks) numerados e coloridos por intensidade
-      for (let i = 0; i < landmarks.length; i++) {
-        const pt = landmarks[i];
-        const cx = pt.x * canvas.width;
-        const cy = pt.y * canvas.height;
-        const style = LANDMARK_STYLE_MAP[i] || { color: "#ffffff", textColor: "#000000" };
+        // Desenhar os 21 pontos (landmarks) numerados e coloridos por intensidade
+        for (let i = 0; i < landmarks.length; i++) {
+          const pt = landmarks[i];
+          const cx = pt.x * canvas.width;
+          const cy = pt.y * canvas.height;
+          const style = LANDMARK_STYLE_MAP[i] || { color: "#ffffff", textColor: "#000000" };
 
-        const radius = i === 0 ? 11 : 9.5;
+          const radius = i === 0 ? 11 : 9.5;
 
-        // Círculo base da bolinha
-        ctx.beginPath();
-        ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
-        ctx.fillStyle = style.color;
-        ctx.fill();
+          // Círculo base da bolinha
+          ctx.beginPath();
+          ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
+          ctx.fillStyle = style.color;
+          ctx.fill();
 
-        // Borda preta/branca para contraste
-        ctx.lineWidth = 1.5;
-        ctx.strokeStyle = i === 0 ? "#ffffff" : "#000000";
-        ctx.stroke();
+          // Borda preta/branca para contraste
+          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = i === 0 ? "#ffffff" : "#000000";
+          ctx.stroke();
 
-        // Desenhar o NÚMERO DO LANDMARK no centro da bolinha
-        ctx.fillStyle = style.textColor;
-        ctx.font = "bold 10px Inter, sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(i.toString(), cx, cy + 0.5);
+          // Desenhar o NÚMERO DO LANDMARK no centro da bolinha
+          ctx.fillStyle = style.textColor;
+          ctx.font = "bold 10px Inter, sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(i.toString(), cx, cy + 0.5);
+        }
       }
     },
     []
@@ -226,19 +239,21 @@ export function useHandLandmarker() {
             );
 
             if (results.landmarks && results.landmarks.length > 0) {
-              const detectedHand = results.landmarks[0] as Landmark[];
+              const allHands = results.landmarks as Landmark[][];
               setLandmarkerState((prev) => ({
                 ...prev,
-                landmarks: detectedHand,
+                landmarks: allHands[0],
+                landmarksList: allHands,
               }));
 
               if (canvasElement) {
-                drawLandmarks(detectedHand, canvasElement, videoElement);
+                drawLandmarks(allHands, canvasElement, videoElement);
               }
             } else {
               setLandmarkerState((prev) => ({
                 ...prev,
                 landmarks: null,
+                landmarksList: null,
               }));
 
               if (canvasElement) {
@@ -268,6 +283,7 @@ export function useHandLandmarker() {
       ...prev,
       isDetecting: false,
       landmarks: null,
+      landmarksList: null,
     }));
   }, []);
 
@@ -277,3 +293,4 @@ export function useHandLandmarker() {
     stopDetection,
   };
 }
+

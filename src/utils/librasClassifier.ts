@@ -633,3 +633,123 @@ export function classifyLibrasSign(landmarks: Landmark[]): HandDetectionResult {
     orientation,
   };
 }
+
+export type TwoHandSignResult = {
+  signName: string;
+  confidence: number;
+  description: string;
+  isFramed: boolean;
+  handsCount: number;
+};
+
+// Verifica se ambas as mãos (2 mãos) estão visíveis e bem enquadradas
+export function checkTwoHandsFraming(landmarksList: Landmark[][] | undefined | null): {
+  isFramed: boolean;
+  message: string;
+  progress: number;
+  handsCount: number;
+} {
+  if (!landmarksList || landmarksList.length < 2) {
+    const handsDetected = landmarksList?.length || 0;
+    return {
+      isFramed: false,
+      message:
+        handsDetected === 1
+          ? "Uma mão detectada. Mostre a segunda mão para a câmera"
+          : "Posicione ambas as mãos em frente à câmera",
+      progress: handsDetected === 1 ? 50 : 0,
+      handsCount: handsDetected,
+    };
+  }
+
+  const hand1 = landmarksList[0];
+  const hand2 = landmarksList[1];
+
+  const frame1 = checkHandFraming(hand1);
+  const frame2 = checkHandFraming(hand2);
+
+  if (!frame1.isFramed || !frame2.isFramed) {
+    return {
+      isFramed: false,
+      message: "Centralize e ajuste a distância de ambas as mãos na câmera",
+      progress: 75,
+      handsCount: 2,
+    };
+  }
+
+  return {
+    isFramed: true,
+    message: "Duas mãos enquadradas perfeitamente!",
+    progress: 100,
+    handsCount: 2,
+  };
+}
+
+// Classificador determinístico básico para sinais bimanuais da educação
+export function classifyTwoHandSign(landmarksList: Landmark[][] | null): TwoHandSignResult {
+  if (!landmarksList || landmarksList.length < 2) {
+    return {
+      signName: "-",
+      confidence: 0,
+      description: "Posicione ambas as mãos em frente à câmera",
+      isFramed: false,
+      handsCount: landmarksList?.length || 0,
+    };
+  }
+
+  const hand1 = landmarksList[0];
+  const hand2 = landmarksList[1];
+
+  const wrist1 = hand1[0];
+  const wrist2 = hand2[0];
+  const middleMcp1 = hand1[9];
+  const middleMcp2 = hand2[9];
+
+  const handsDist = distance(wrist1, wrist2);
+  const hand1Open = distance(hand1[0], hand1[12]) > distance(hand1[0], hand1[9]) * 1.3;
+  const hand2Open = distance(hand2[0], hand2[12]) > distance(hand2[0], hand2[9]) * 1.3;
+
+  // 1. SINAL "LIVRO": Ambas as mãos abertas e próximas, simulando as páginas abertas de um livro
+  if (hand1Open && hand2Open && handsDist < 0.45) {
+    return {
+      signName: "LIVRO",
+      confidence: 0.96,
+      description: "Sinal LIVRO: Ambas as mãos abertas com palmas para cima abrindo como um livro",
+      isFramed: true,
+      handsCount: 2,
+    };
+  }
+
+  // 2. SINAL "ESCOLA": Mãos formando telhado/V invertido com as pontas dos dedos se tocando
+  const indexTipDist = distance(hand1[8], hand2[8]);
+  if (indexTipDist < 0.20 && (hand1[8].y < wrist1.y && hand2[8].y < wrist2.y)) {
+    return {
+      signName: "ESCOLA",
+      confidence: 0.95,
+      description: "Sinal ESCOLA: Pontas das duas mãos unidas no topo formando um telhado",
+      isFramed: true,
+      handsCount: 2,
+    };
+  }
+
+  // 3. SINAL "ESTUDAR": Mão em cima da outra espalmada batendo levemente
+  if (hand1Open && hand2Open && Math.abs(middleMcp1.x - middleMcp2.x) < 0.25) {
+    return {
+      signName: "ESTUDAR",
+      confidence: 0.92,
+      description: "Sinal ESTUDAR: Palma da mão direita sobre a palma esquerda se movimentando",
+      isFramed: true,
+      handsCount: 2,
+    };
+  }
+
+  // Gesto bimanual detectado genérico
+  return {
+    signName: "BIMANUAL",
+    confidence: 0.85,
+    description: "Duas mãos detectadas! Faça um dos sinais educacionais",
+    isFramed: true,
+    handsCount: 2,
+  };
+}
+
